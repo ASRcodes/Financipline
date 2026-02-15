@@ -15,8 +15,10 @@ import com.example.financipline.databinding.FragmentDashboardBinding
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.postgrest.postgrest
 import kotlinx.coroutines.launch
+import kotlinx.serialization.json.put
 import org.json.JSONArray
 import org.json.JSONObject
+import org.slf4j.MDC.put
 
 class DashboardFragment : Fragment() {
     private var _binding: FragmentDashboardBinding? = null
@@ -31,9 +33,12 @@ class DashboardFragment : Fragment() {
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
         super.onViewCreated(view, savedInstanceState)
-
-        // Ensure Horizontal Layout for Action Required
+        binding.fabAddManual.setOnClickListener {
+            showManualExpenseDialog()
+        }
+        // Set layout managers
         binding.rvPendingExpenses.layoutManager = LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false)
+        binding.rvRecentHistory.layoutManager = LinearLayoutManager(requireContext())
 
         // 1. Check & Request Notification Permission
         checkNotificationPermission()
@@ -79,7 +84,7 @@ class DashboardFragment : Fragment() {
                 val pendingList = mutableListOf<JSONObject>()
                 val confirmedList = mutableListOf<JSONObject>()
 
-                // Split expenses into Pending (Action Required) and Confirmed (Math)
+                // Split expenses into Pending and Confirmed buckets
                 for (i in 0 until allExpenses.length()) {
                     val item = allExpenses.getJSONObject(i)
                     if (item.optBoolean("is_pending", true)) {
@@ -89,13 +94,31 @@ class DashboardFragment : Fragment() {
                     }
                 }
 
-                // Initialize/Update the Action Required Adapter
-                pendingAdapter = PendingExpenseAdapter(pendingList) {
-                    loadDashboardData() // Refresh logic when a card is categorized
-                }
-                binding.rvPendingExpenses.adapter = pendingAdapter
+                // --- DYNAMIC SECTION VISIBILITY ---
+                if (pendingList.isEmpty()) {
+                    binding.tvActionRequiredLabel.visibility = View.GONE
+                    binding.rvPendingExpenses.visibility = View.GONE
+                } else {
+                    binding.tvActionRequiredLabel.visibility = View.VISIBLE
+                    binding.rvPendingExpenses.visibility = View.VISIBLE
 
-                // Update the Progress Ring and Status
+                    pendingAdapter = PendingExpenseAdapter(pendingList) {
+                        loadDashboardData()
+                    }
+                    binding.rvPendingExpenses.adapter = pendingAdapter
+                }
+
+                // --- RECENT HISTORY ---
+                if (confirmedList.isNotEmpty()) {
+                    binding.rvRecentHistory.adapter = RecentHistoryAdapter(confirmedList)
+                    binding.rvRecentHistory.visibility = View.VISIBLE
+                    binding.tvRecentActivityLabel.visibility = View.VISIBLE
+                } else {
+                    binding.rvRecentHistory.visibility = View.GONE
+                    binding.tvRecentActivityLabel.visibility = View.GONE
+                }
+
+                // Update UI math
                 updateUI(profileResponse.data, confirmedList)
 
             } catch (e: Exception) {
@@ -103,36 +126,73 @@ class DashboardFragment : Fragment() {
             }
         }
     }
+    private fun showManualExpenseDialog() {
+        val dialogView = LayoutInflater.from(context).inflate(R.layout.dialog_manual_expense, null)
+        val etAmount = dialogView.findViewById<android.widget.EditText>(R.id.etManualAmount)
+        val etMerchant = dialogView.findViewById<android.widget.EditText>(R.id.etManualMerchant)
 
+        AlertDialog.Builder(requireContext())
+            .setTitle("Add Cash Expense")
+            .setView(dialogView)
+            .setPositiveButton("Add") { _, _ ->
+                val amount = etAmount.text.toString().toDoubleOrNull() ?: 0.0
+                val merchant = etMerchant.text.toString()
+                if (amount > 0) saveManualExpense(amount, merchant)
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun saveManualExpense(amount: Double, merchant: String) {
+        val userId = SupabaseManager.client.auth.currentUserOrNull()?.id ?: return
+
+        lifecycleScope.launch {
+            try {
+                // Build JSON manually to avoid serializer plugin issues
+                val jsonObject = kotlinx.serialization.json.buildJsonObject {
+                    put("user_id", userId)
+                    put("amount", amount)
+                    put("merchant", merchant)
+                    put("category", "Cash")
+                    put("is_pending", false) // Confirmed immediately
+                }
+
+                SupabaseManager.client.postgrest["expenses"].insert(jsonObject)
+                loadDashboardData() // Refresh everything
+                Toast.makeText(context, "Added cash expense!", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Toast.makeText(context, "Failed to sync manual entry", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     private fun updateUI(profileRaw: String, confirmedList: List<JSONObject>) {
         try {
-            // 1. Parse Profile Data
             val profileArray = JSONArray(profileRaw)
             if (profileArray.length() == 0) return
 
             val profileJson = profileArray.getJSONObject(0)
+
+            // Personalize the Welcome text
+            val userName = profileJson.optString("full_name", "User")
+            binding.tvWelcome.text = "Hi, $userName"
+
             val dailyLimit = profileJson.optDouble("daily_limit", 0.0)
             val currentStreak = profileJson.optInt("current_streak", 0)
 
-            // 2. Sum up Confirmed Expenses
             var totalSpentToday = 0.0
             for (item in confirmedList) {
                 totalSpentToday += item.getDouble("amount")
             }
 
             val remaining = dailyLimit - totalSpentToday
-
-            // 3. Update Text Views
             binding.tvRemainingAmount.text = "₹${String.format("%.0f", remaining)}"
             binding.tvStreakDisplay.text = "🔥 $currentStreak Day Saving Streak!"
 
-            // 4. Update Progress Ring
             val progressPercent = if (dailyLimit > 0) {
                 ((totalSpentToday / dailyLimit) * 100).toInt().coerceAtMost(100)
             } else 0
             binding.budgetProgressRing.progress = progressPercent
 
-            // 5. Overspending Color Alert
             if (remaining < 0) {
                 binding.tvRemainingAmount.setTextColor(resources.getColor(android.R.color.holo_red_dark))
             } else {
@@ -145,7 +205,7 @@ class DashboardFragment : Fragment() {
 
     override fun onResume() {
         super.onResume()
-        loadDashboardData() // Auto-refresh when user opens the app after a notification
+        loadDashboardData()
     }
 
     override fun onDestroyView() {

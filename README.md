@@ -14,9 +14,10 @@
 ## 📸 App Interface
 | Dashboard & Math | Transaction Detection | Saving Streaks |
 | :---: | :---: | :---: |
-| ![Dashboard](https://via.placeholder.com/200x400?text=Daily+Limit+UI) | ![Detection](https://via.placeholder.com/200x400?text=Auto+Extract) | ![Streaks](https://via.placeholder.com/200x400?text=Gamified+Savings) |
-> **Tip:** Drag and drop your actual screenshots into this section while editing on GitHub to replace these placeholders!
-
+| ![Dashboa<img width="289" height="633" alt="Screenshot 2026-02-16 002045" src="https://github.com/user-attachments/assets/b3096ef1-e1e3-4824-80ff-c0eb080e1cf9" />
+rd] | ![Analyt<img width="273" height="621" alt="Screenshot 2026-02-16 001957" src="https://github.com/user-attachments/assets/b0fa9699-c8fc-4930-a64d-a4c0290075c3" />
+ics] | ![History<img width="280" height="624" alt="Screenshot 2026-02-16 002123" src="https://github.com/user-attachments/assets/19a1e44a-9719-4f99-aae9-7060bcbfd786" />
+] |
 ---
 
 ## ✨ The Core "Crux" (Features)
